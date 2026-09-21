@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+  <title>Convite</title>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    #viewer {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      touch-action: none;
+      user-select: none;
+    }
+
+    #page {
+      position: relative;
+      display: inline-block;
+      line-height: 0;
+    }
+
+    canvas {
+      display: block;
+      max-width: 100vw;
+      max-height: 100vh;
+    }
+
+    .link {
+      position: absolute;
+      cursor: pointer;
+      background: transparent;
+      z-index: 10;
+    }
+  </style>
+</head>
+
+<body>
+
+<div id="viewer">
+  <div id="page"></div>
+</div>
+
+<script type="module">
+
+  import * as pdfjsLib from
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.mjs";
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.mjs";
+
+  const PDF_FILE = "convite%20Gel.pdf";
+
+  let pdf = null;
+  let currentPage = 1;
+  let rendering = false;
+
+  const viewer = document.getElementById("viewer");
+  const pageContainer = document.getElementById("page");
+
+  async function loadPDF() {
+    pdf = await pdfjsLib.getDocument(PDF_FILE).promise;
+    await showPage(1);
+  }
+
+  async function showPage(pageNumber) {
+
+    if (!pdf || rendering) return;
+
+    if (pageNumber < 1 || pageNumber > pdf.numPages) return;
+
+    rendering = true;
+    currentPage = pageNumber;
+
+    pageContainer.innerHTML = "";
+
+    const page = await pdf.getPage(pageNumber);
+
+    const baseViewport = page.getViewport({ scale: 1 });
+
+    const availableWidth = window.innerWidth;
+    const availableHeight = window.innerHeight;
+
+    const scale = Math.min(
+      availableWidth / baseViewport.width,
+      availableHeight / baseViewport.height
+    );
+
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+
+    canvas.style.width = viewport.width + "px";
+    canvas.style.height = viewport.height + "px";
+
+    pageContainer.style.width = viewport.width + "px";
+    pageContainer.style.height = viewport.height + "px";
+
+    pageContainer.appendChild(canvas);
+
+    await page.render({
+      canvasContext: context,
+      viewport: viewport
+    }).promise;
+
+    await createLinks(page, viewport);
+
+    rendering = false;
+  }
+
+  async function createLinks(page, viewport) {
+
+    const annotations = await page.getAnnotations({
+      intent: "display"
+    });
+
+    for (const annotation of annotations) {
+
+      if (annotation.subtype !== "Link") continue;
+
+      if (!annotation.rect) continue;
+
+      const rect = viewport.convertToViewportRectangle(
+        annotation.rect
+      );
+
+      const left = Math.min(rect[0], rect[2]);
+      const top = Math.min(rect[1], rect[3]);
+      const width = Math.abs(rect[2] - rect[0]);
+      const height = Math.abs(rect[3] - rect[1]);
+
+      const link = document.createElement("div");
+
+      link.className = "link";
+
+      link.style.left = left + "px";
+      link.style.top = top + "px";
+      link.style.width = width + "px";
+      link.style.height = height + "px";
+
+      if (annotation.dest) {
+
+        link.addEventListener("click", async function(event) {
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          let destination = annotation.dest;
+
+          if (typeof destination === "string") {
+            destination = await pdf.getDestination(destination);
+          }
+
+          if (!destination) return;
+
+          const pageRef = destination[0];
+
+          const targetPage =
+            await pdf.getPageIndex(pageRef) + 1;
+
+          await showPage(targetPage);
+        });
+
+      } else if (annotation.url) {
+
+        link.addEventListener("click", function(event) {
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          window.open(
+            annotation.url,
+            "_blank",
+            "noopener,noreferrer"
+          );
+
+        });
+      }
+
+      pageContainer.appendChild(link);
+    }
+  }
+
+  window.addEventListener("resize", function() {
+    showPage(currentPage);
+  });
+
+  viewer.addEventListener("wheel", function(event) {
+    event.preventDefault();
+  }, { passive: false });
+
+  viewer.addEventListener("touchmove", function(event) {
+    event.preventDefault();
+  }, { passive: false });
+
+  viewer.addEventListener("gesturestart", function(event) {
+    event.preventDefault();
+  });
+
+  viewer.addEventListener("gesturechange", function(event) {
+    event.preventDefault();
+  });
+
+  viewer.addEventListener("gestureend", function(event) {
+    event.preventDefault();
+  });
+
+  loadPDF();
+
+</script>
+
+</body>
+</html>
